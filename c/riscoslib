@@ -1,0 +1,349 @@
+/*
+** SWI library
+** 26/10/2011
+** GCW
+*/
+
+#define riscoslib_c
+
+#include "lua.h"
+#include "lauxlib.h"
+#include "lualib.h"
+#include "sys.h"
+#include <string.h>
+#include <stdlib.h>
+
+#define hack(n) (void *)(n)
+#define pure __attribute__((pure))
+
+#define BLOCK "block"
+
+#define riscos_exit(L,s)  lua_pushnil(L);\
+     lua_pushstring(L,s);\
+     return 2
+
+static char *rversion = RISCLUA_VERSION;
+
+static int metablock, blockref;
+
+typedef struct dimblock  {
+  size_t size;
+  void * val[1];
+ } dimblock;
+
+static int reg[8];
+
+static int risc_blocksize (lua_State *L) {
+void *q = lua_touserdata(L,1);
+if ((q != NULL) && (lua_getmetatable(L,1))) {
+    lua_rawgeti(L,LUA_REGISTRYINDEX,metablock);
+    if (!lua_rawequal(L,-1,-2)) q = NULL;
+    lua_pop(L,2);
+    };
+if (q) lua_pushinteger(L,(int) ((dimblock *)q)->size);
+else lua_pushnil(L);  /* should never get here */
+return 1;
+}
+
+static int risc_r_w (lua_State *L)
+{
+  int n = luaL_checkinteger(L,2);
+#if 1
+  int *ptr = (int *)n;
+  n = *ptr;
+#else
+  asm("ldr %0,[%0]" : "=r" (n) : "0" (n));
+#endif
+  lua_pushinteger(L, n);
+  return 1;
+}
+
+static int risc_r_b (lua_State *L)
+{
+  int n = luaL_checkinteger(L,2);
+#if 1
+  char *ptr = (char *)n;
+  n = *ptr;
+#else
+  asm("ldrb %0,[%0]" : "=r" (n) : "0" (n));
+#endif
+  lua_pushinteger(L, n);
+  return 1;
+}
+
+static int  risc_w_w (lua_State *L)
+{
+ int n = luaL_checkinteger(L,2);
+ int x = luaL_checkinteger(L,3);
+#if 1
+ int *ptr = (int *)n;
+ *ptr = x;
+#else
+ asm("str %1,[%0]" : :"r" (n), "r" (x));
+#endif
+ return 0;
+}
+
+static int risc_w_b (lua_State *L)
+{
+ int n = luaL_checkinteger(L,2);
+ int x = luaL_checkinteger(L,3);
+#if 1
+ char *ptr = (char *)n;
+ *ptr = x;
+#else
+ asm("strb %1,[%0]"      : :"r" (n), "r" (x));
+#endif
+ return 0;
+}
+
+static int  risc_r_s (lua_State *L)
+{
+ lua_pushstring(L,(char *)hack(luaL_checkinteger(L,2)));
+ return 1;
+}
+
+static int risc_rx_s (lua_State *L)
+{
+ size_t n;
+ char *p;
+ const char *s = (const char *)hack(luaL_checkinteger(L,2));
+ if (lua_gettop(L) > 2)
+  n = (size_t)luaL_checkinteger(L,3);
+ else {
+  for(p = (char *)s; *p > 31; p++);
+  n = p - s;
+ }
+ lua_pushlstring(L,s,n);
+ return 1;
+}
+
+static int risc_w_s (lua_State *L)
+{
+ size_t n;
+ void *p = hack(luaL_checkinteger(L,2));
+ const void *s = hack(lua_tolstring(L,3,&n));
+ if (s==NULL) luaL_error(L,"$: string required");
+ memcpy(p,s,n);
+ return 0;
+}
+
+static int pure align(int n)
+{
+#if 1
+  return (n + 3) & (~3);
+#else
+asm(
+  "add %0, %0, #3"   "\n\t"
+  "bic %0, %0, #3"   "\n\t"
+  : "=r" (n) : "0" (n));
+  return n;
+#endif
+}
+
+static int risc_dim (lua_State *L)
+{
+  int n;
+  dimblock *p;
+  size_t nbytes;
+  size_t m;
+  const void *s;
+  switch (lua_type(L,1)) {
+    case LUA_TNUMBER:
+     n = lua_tointeger(L,1);
+     if (n < 0)
+       luaL_error(L,"dim: negative argument");
+     nbytes = align(sizeof(dimblock) + (n-1)*sizeof(char));
+     p = (dimblock *)lua_newuserdatauv(L, nbytes, 1);
+     p->size = (size_t) n;
+     break;
+    case LUA_TSTRING:
+     s = hack(lua_tolstring(L,1,&m));
+     nbytes = align(sizeof(dimblock) + m*sizeof(char));
+     p = (dimblock *)lua_newuserdatauv(L, nbytes, 1);
+     p->size = m;
+     memcpy(p->val,s,m);
+     break;
+    default:
+     luaL_error(L,"dim: bad argument type");
+  }
+  lua_rawgeti(L,LUA_REGISTRYINDEX,metablock);
+  /* stack: p, metablock */
+  lua_setmetatable(L,-2);
+  /* stack: p */
+  lua_rawgeti(L,LUA_REGISTRYINDEX,blockref);
+  /* stack:  p, riscos.block */
+  lua_pushinteger(L,(int) ((dimblock *) p)->val);
+  /* stack: p, riscos.block, adr */
+  lua_pushvalue(L,-1);
+  /* stack: p, riscos.block, adr, adr  */
+  lua_pushvalue(L,-4);
+  /* stack: p, riscos.block, adr, adr, p */
+  lua_rawset(L,-4);  /* riscos.block[adr] = p */
+  /* stack: p, riscos.block, adr */
+  return 1;
+}
+
+static char (swi_sbuf[8])[256];
+/* static buffers for string args to sys */
+
+static int callswi  (lua_State *L) {
+  unsigned int swinum;
+  int stktop;
+  oserror *p;
+  int i;
+  const char *s;
+  size_t m;
+  void *adr;
+  stktop = lua_gettop(L) - 1;
+  switch (lua_type(L,1)) {
+   case LUA_TNUMBER:
+     swinum = (unsigned int)lua_tointeger(L,1);
+     break;
+   case LUA_TSTRING:
+     swinum = swi_str2num(lua_tostring(L,1));
+     break;
+   default:
+     riscos_exit(L,"sys: bad swi type");
+     break;
+  }
+  for (i = 0;i < 8 && i < stktop;i++)
+  {
+   int j = i+2;
+   switch (lua_type(L,j)) {
+    case LUA_TNUMBER:
+     reg[i] = (int) lua_tointeger(L,j);
+     break;
+    case LUA_TNIL:
+     break;
+    case LUA_TSTRING:
+     s = lua_tolstring(L,j,&m);
+     if (m > 255) {
+      riscos_exit(L,"sys: string argument too long"); break; }
+     adr = (void *)swi_sbuf[i];
+     memcpy(adr,hack(s),m);
+     reg[i] = (int)adr;
+     break;
+    default:
+     riscos_exit(L,"sys: bad arg type");
+     break;
+    }
+  }
+  if ((p = swi_call(swinum, reg))!=0) {
+    riscos_exit(L,p->errmsg);}
+  for (i = 0;i<8;i++)
+    lua_pushinteger(L,reg[i]);
+  return 8;
+ }
+
+static int rdir_iter (lua_State *L);
+#define RDIR_BUFLEN 256
+static int rdir_buf[RDIR_BUFLEN/sizeof(int)];
+
+static int rdir_read  (lua_State *L) {
+   lua_pushinteger(L,0); /* start */
+   lua_pushstring(L,lua_tostring(L,1));
+   lua_pushcclosure(L,&rdir_iter,2);
+   return 1;
+}
+
+static int rdir_iter (lua_State *L) {
+ int n;
+ int offset = (int) lua_tointeger(L,lua_upvalueindex(1));
+ const char * dir = lua_tostring(L,lua_upvalueindex(2));
+ n = rdir(dir,rdir_buf,offset);
+ if  (n == -1) {
+    lua_pushnil(L);
+    return 1;
+               }
+  else {
+    lua_pushinteger(L, n);
+    lua_replace(L, lua_upvalueindex(1));       /* new offset */
+    lua_pushstring(L, (char *)(&rdir_buf[6])); /* name */
+    lua_pushinteger(L, rdir_buf[5]);           /* filetype */
+    return 2;
+      }
+}
+
+static int r_filetype (lua_State *L) {
+lua_pushinteger(L, file_type(lua_tostring(L,1)));
+  return 1;
+}
+
+static const struct luaL_Reg risc_mblock [] = {
+   { "__len", risc_blocksize },
+   { NULL, NULL}
+};
+
+static const struct luaL_Reg risc_meta_w [] = {
+   { "__index", risc_r_w },
+   { "__newindex", risc_w_w },
+   { NULL, NULL}
+};
+
+static const struct luaL_Reg risc_meta_b [] = {
+   { "__index", risc_r_b },
+   { "__newindex", risc_w_b },
+   { NULL, NULL}
+};
+
+static const struct luaL_Reg risc_meta_s [] = {
+   { "__index", risc_r_s },
+   { "__newindex", risc_w_s },
+   { "__call", risc_rx_s },
+   { NULL, NULL}
+};
+
+static const struct luaL_Reg riscoslib [] = {
+   { "dim", risc_dim},
+   { "sys", callswi},
+   { "dir", rdir_read},
+   { "filetype", r_filetype},
+   {NULL,NULL}
+ };
+
+LUAMOD_API int luaopen_riscos  (lua_State *L) {
+  luaL_newlib(L, riscoslib);
+/* stack: riscos */
+  lua_pushstring(L, rversion);
+/* stack: riscos version */
+  lua_setfield(L,-2,"version");
+/* stack: riscos */
+  lua_newtable(L); /* to be ! */
+/* stack: riscos ! */
+  luaL_newlib(L,risc_meta_w);
+/* stack: riscos ! meta_! */
+  lua_setmetatable(L,-2);
+/* stack: riscos ! */
+  lua_setfield(L,-2,"!");
+/* stack: riscos */
+  lua_newtable(L); /* to be ? */
+/* stack: riscos ? */
+  luaL_newlib(L,risc_meta_b);
+/* stack: riscos ? meta_? */
+  lua_setmetatable(L,-2);
+/* stack: riscos ? */
+  lua_setfield(L,-2,"?");
+/* stack: riscos */
+  lua_newtable(L); /* to be $ */
+/* stack: riscos $ */
+  luaL_newlib(L,risc_meta_s);
+/* stack: riscos $ meta_$ */
+  lua_setmetatable(L,-2);
+/* stack: riscos $ */
+  lua_setfield(L,-2,"$");
+/* stack: riscos */
+  lua_newtable(L); /* to be block */
+/* stack: riscos block */
+  lua_pushvalue(L,-1);
+/* stack: riscos block block */
+  lua_setfield(L,-3,BLOCK);
+/* stack: riscos block */
+  blockref = luaL_ref(L,LUA_REGISTRYINDEX);
+/* stack: riscos  */
+  luaL_newlib(L,risc_mblock);
+/* stack: riscos metablock */
+  metablock = luaL_ref(L,LUA_REGISTRYINDEX);
+/* stack: riscos */
+  return 1;
+}

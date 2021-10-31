@@ -1,0 +1,24 @@
+/*
+Config file for RiscLua 86 (VFP)
+GCW 18/09/2021
+*/
+
+#define RISCLUA_VERSION         	"RiscLua 8.6  (VFP)"
+#define RISCLUA_VERSION_NUM     	86
+#define LUA_PROGNAME            	"rlua86"
+#undef  LUA_PATH_DEFAULT
+#define LUA_PATH_DEFAULT        	"rlua86:lib.?,?"
+#undef LUA_CPATH_DEFAULT
+#define LUA_CPATH_DEFAULT        	"RLuaC:?,?"
+#undef LUA_DIRSEP
+#define LUA_DIRSEP              	"."
+#undef LUA_PATH_SEP
+#define LUA_PATH_SEP            	 ","
+#define LUA_USE_DLOPEN
+#define LUA_DL_DLOPEN                  
+#define LUA_NOCVTN2S
+#define LUA_NOCVTS2N
+#define LUA_USE_POSIX
+#include "setjmp.h"
+#define _longjmp longjmp
+#define _setjmp setjmp

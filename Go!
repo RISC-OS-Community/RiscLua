@@ -1,0 +1,3 @@
+dir <Obey$dir>
+make
+echo ------- finished

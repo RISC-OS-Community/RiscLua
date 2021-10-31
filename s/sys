@@ -1,0 +1,63 @@
+@ gas source called by riscoslib.c
+@ GCW 03/12/2020
+
+  .section SYS
+  .global rdir
+  .global file_type
+  .global swi_str2num
+  .global swi_call
+  .set BUFLEN, 256
+  .text
+
+rdir:
+  stmfd sp!,{r1-r6,r14}
+  mov   r6,#0         @ no wild card
+  mov   r5,#BUFLEN    @ bufferlength
+  mov   r4,r2         @ offset
+  mov   r3,#1         @ number of items
+  mov   r2,r1         @ buffer
+  mov   r1,r0         @ directory name
+  mov   r0,#12
+  swi   0x2000c       @  XOS_GBPB
+  movvs r3,#0
+  cmp   r3,#1
+  moveq r0,r4         @ next offset
+  mvnne r0,#0         @ -1 if no more
+  ldmfd sp!,{r1-r6,pc}
+  .type rdir %function
+  .size rdir, .-rdir
+
+file_type:
+  stmfd sp!,{r1-r6,r14}
+  mov   r1,r0
+  mov   r0,#23
+  swi   0x20008   @ XOS_FILE
+  movvs r0,#0
+  cmp   r0,#0
+  mvneq r0,r0
+  movne r0,r6
+  ldmfd sp!,{r1-r6,pc}
+  .type file_type %function
+  .size file_type, .-file_type
+
+swi_str2num:
+  mov   r1,r0
+  swi   0x20039  @ XOS_SWINumberFromString
+  mvnvs r0,#0    @ return -1 if error
+  mov   pc,r14
+  .type swi_str2num %function
+  .size swi_str2num, .-swi_str2num
+
+swi_call:
+  stmfd   sp!,{r4-r8,r12,r14}
+  orr     r12,r0,#0x20000    @  X flag
+  mov     r8,r1              @ base of register values
+  ldmia   r8,{r0-r7}
+  swi     0x71               @ OS_CallASWIR12
+  stmvcia r8,{r0-r7}
+  movvc   r0,#0              @ return 0 for success
+  ldmfd   sp!,{r4-r8,r12,pc}
+  .type swi_call %function
+  .size swi_call, .-swi_call
+
+  .end

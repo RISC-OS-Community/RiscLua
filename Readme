@@ -1,0 +1,7 @@
+RiscLua 86 (VFP)
+Based on Lua 5.4.3
+Compiler: GCC 4.7.4
+Libraries:  riscos, lpeg
+Numbers: 64bit integers, 64bit vfp
+package.path:  rlua86:lib.?,?
+date: 2021/09/18

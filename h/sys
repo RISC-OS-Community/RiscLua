@@ -1,0 +1,33 @@
+/* sys.h */
+/* GCW 03/12/2020 */
+
+/* Read one item from directory dir. First call should
+have offset = 0, new offset returned. A returned offset
+of 0 signifies nothing was read, and of -1 signifies no
+more to be read. Data read into a buffer buf with filetype the
+word at rdir_ftype = buf+20 and leaf name the
+zero-terminated string at rdir_leaf = buf+24.
+Assume leaf name has fewer than 103 characters. */
+
+extern int rdir(const char *dir, int *buf, int offset);
+
+/* return filetype of name.
+   -1 untyped
+   &1000 directory
+   &2000 application  */
+
+extern int file_type(const char *name);
+
+/* convert SWI string to number */
+/* return -1 for failure */
+
+extern unsigned int swi_str2num(const char *s);
+
+typedef struct {
+   int errn;
+   char errmsg[252];
+   } oserror;
+
+/* SWI call */
+/* return 0 for success */
+extern oserror *swi_call(unsigned int swinum, int *r);
