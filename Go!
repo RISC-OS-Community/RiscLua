@@ -1,3 +1,4 @@
-dir <Obey$dir>
+dir <Obey$dir>.src
 make
 echo ------- finished
+

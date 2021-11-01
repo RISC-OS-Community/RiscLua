@@ -1,4 +1,5 @@
-dir <Obey$dir>
+dir <Obey$dir>.src
 echo "-->"
 gcc -std=gnu99 -fPIC -O2 -Wall -Wextra -Wl,-E -shared -mfpu=vfp -o so/lpeg lpcap.c lpcode.c lpprint.c lptree.c lpvm.c
 echo "Finished making lpeg"
+
