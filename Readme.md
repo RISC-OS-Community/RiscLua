@@ -14,6 +14,5 @@ Numbers: 64bit integers, 64bit vfp
 package.path:  rlua86:lib.?,?
 date: 2021/09/18
 
-For more info please visit:
-http://www.wra1th.plus.com/lua/risclua.html
+For more info please click [here](http://www.wra1th.plus.com/lua/risclua.html)
 
