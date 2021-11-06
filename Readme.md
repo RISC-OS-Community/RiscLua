@@ -14,6 +14,7 @@ Compiler: GCC 4.7.4
 Libraries:  riscos, lpeg
 Numbers: 64bit integers, 64bit vfp
 package.path:  rlua86:lib.?,?
+package.cpath: rlua86:solib.?/so,?/so
 date: 2021/09/18
 ```
 
